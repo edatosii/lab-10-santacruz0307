@@ -1,166 +1,782 @@
+
 package co.umariana.modelo;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 /**
- * El árbol genealógico: un SUJETO (posición "1") con sus ASCENDIENTES (padres, abuelos... en Ahnentafel)
- * y sus DESCENDIENTES (hijos, nietos... en d'Aboville). Ver la clase Posicion.
+ * Árbol genealógico formado por un sujeto, sus ascendientes
+ * y sus descendientes.
  *
- * Son en realidad dos árboles unidos en la raíz:
+ * Los ascendientes se organizan mediante referencias al padre
+ * y a la madre.
  *
- *     ascendientes:  árbol BINARIO. Cada persona tiene como mucho un padre (2n) y una madre (2n + 1).
- *     descendientes: árbol GENERAL. Cada persona tiene una lista de hijos (1.1, 1.2, ...) ordenada por número.
+ * Los descendientes se organizan mediante una lista de hijos.
  *
- * El árbol solo guarda a los miembros que EXISTEN: no hay "huecos" ni personas vacías. Puede faltar el padre
- * de alguien, o el hijo 1.1 aunque exista el 1.2.
- *
- * INSTRUCCIONES PARA EL ESTUDIANTE (Etapa 2)
- * ------------------------------------------
- * 1. Implemente el árbol con sus PROPIOS NODOS: una clase interna "Nodo" con la Persona, el nodo del
- *    padre, el nodo de la madre y la lista de hijos. NO se permite usar Map ni Set (las pruebas lo
- *    revisan): para buscar una posición recorra el árbol siguiendo su camino
- *      - Ahnentafel: los bits de n después del primer 1 dicen el camino (0 = padre, 1 = madre).
- *        Ej.: 5 = 101 -> desde el sujeto: padre (0), luego madre (1).
- *      - D'Aboville: cada número de la posición dice a qué hijo bajar. Ej.: 1.2.3 -> hijo 2, luego su hijo 3.
- *    Se permite usar List/ArrayList para la lista de hijos.
- * 2. Todos los errores de las reglas se informan con {@link ArbolInvalidoException} (un mensaje claro).
- *    Los datos inválidos de una Persona los detecta Persona.validar() (IllegalArgumentException).
- * 3. NO modifique las pruebas (src/test).
- *
- * REGLAS DEL ÁRBOL
- *   - La posición "1" (el sujeto) existe siempre y no se puede eliminar.
- *   - Una posición no puede repetirse.
- *   - Un ascendiente n solo se puede agregar si ya existe su hijo n / 2, y debe haber NACIDO ANTES
- *     (año de nacimiento menor) que ese hijo.
- *   - Un descendiente solo se puede agregar si ya existe su progenitor, y debe haber NACIDO DESPUÉS
- *     (año de nacimiento mayor) que su progenitor.
+ * No se utilizan Map ni Set.
  */
 public class ArbolGenealogico {
 
-    // TODO Etapa 2: declare la clase interna Nodo y los atributos necesarios (raíz, cantidad de miembros...).
+    // ========================================================
+    // 1. CLASE INTERNA NODO
+    // ========================================================
 
     /**
-     * Crea un árbol que solo tiene al sujeto.
+     * Representa un nodo del árbol genealógico.
      *
-     * @throws IllegalArgumentException si la persona no es válida (Persona.validar)
-     * @throws ArbolInvalidoException si su posición no es "1"
+     * Cada nodo almacena:
+     * - Una persona.
+     * - Su padre.
+     * - Su madre.
+     * - Una lista de hijos.
+     */
+    private static class Nodo {
+
+        private final Persona persona;
+
+        private Nodo padre;
+        private Nodo madre;
+
+        private final List<Nodo> hijos;
+
+        private Nodo(Persona persona) {
+            this.persona = persona;
+            this.padre = null;
+            this.madre = null;
+            this.hijos = new ArrayList<>();
+        }
+    }
+
+
+    // ========================================================
+    // 2. ATRIBUTOS DEL ÁRBOL
+    // ========================================================
+
+    /**
+     * Nodo principal del árbol.
+     */
+    private final Nodo raiz;
+
+    /**
+     * Cantidad total de personas registradas.
+     */
+    private int cantidad;
+
+
+    // ========================================================
+    // 3. CONSTRUCTOR
+    // ========================================================
+
+    /**
+     * Crea un árbol que inicialmente contiene solamente al sujeto.
+     *
+     * @param sujeto persona principal.
+     * @throws IllegalArgumentException si la persona no es válida.
+     * @throws ArbolInvalidoException si su posición no es "1".
      */
     public ArbolGenealogico(Persona sujeto) {
-        // TODO Etapa 2
-        throw new UnsupportedOperationException("TODO: constructor");
+
+        if (sujeto == null) {
+            throw new IllegalArgumentException(
+                "El sujeto no puede ser null."
+            );
+        }
+
+        sujeto.validar();
+
+        if (!Posicion.esSujeto(sujeto.getPosicion())) {
+            throw new ArbolInvalidoException(
+                "El sujeto debe tener la posición 1."
+            );
+        }
+
+        this.raiz = new Nodo(sujeto);
+        this.cantidad = 1;
     }
 
-    /** @return el sujeto (la persona de la posición "1") */
-    public Persona sujeto() {
-        // TODO Etapa 2
-        throw new UnsupportedOperationException("TODO: sujeto");
-    }
 
-    /** @return cuántos miembros tiene el árbol (el sujeto cuenta; un árbol nuevo tiene 1) */
-    public int tamano() {
-        // TODO Etapa 2
-        throw new UnsupportedOperationException("TODO: tamano");
-    }
+    // ========================================================
+    // 4. OBTENER EL SUJETO
+    // ========================================================
 
     /**
-     * @return la persona de esa posición, o null si no existe en el árbol o si la posición no es válida
+     * @return persona principal del árbol.
+     */
+    public Persona sujeto() {
+        return raiz.persona;
+    }
+
+
+    // ========================================================
+    // 5. OBTENER EL TAMAÑO
+    // ========================================================
+
+    /**
+     * @return cantidad total de personas.
+     */
+    public int tamano() {
+        return cantidad;
+    }
+
+
+    // ========================================================
+    // 6. BUSCAR UNA PERSONA
+    // ========================================================
+
+    /**
+     * Busca una persona utilizando su posición genealógica.
+     *
+     * Para Ahnentafel se recorren los bits del número.
+     * Para D'Aboville se recorren los números de sus niveles.
+     *
+     * @param posicion posición que se desea buscar.
+     * @return persona encontrada o null.
      */
     public Persona buscar(String posicion) {
-        // TODO Etapa 2
-        throw new UnsupportedOperationException("TODO: buscar");
+
+        if (!Posicion.esValida(posicion)) {
+            return null;
+        }
+
+        Nodo encontrado = buscarNodo(posicion);
+
+        return encontrado == null ? null : encontrado.persona;
     }
 
-    /** @return true si hay alguien en esa posición (false también si la posición no es válida) */
-    public boolean contiene(String posicion) {
-        // TODO Etapa 2
-        throw new UnsupportedOperationException("TODO: contiene");
-    }
 
     /**
-     * Agrega una persona en la posición que ella misma trae (la usa el constructor del árbol a partir del texto).
-     * El orden de llamada importa: primero debe existir la persona de la que depende (ver REGLAS DEL ÁRBOL).
+     * Busca internamente un nodo sin exponer la estructura.
+     */
+    private Nodo buscarNodo(String posicion) {
+
+        if (!Posicion.esValida(posicion)) {
+            return null;
+        }
+
+        // ----------------------------------------------------
+        // BÚSQUEDA AHNENTAFEL
+        // ----------------------------------------------------
+
+        if (Posicion.esAhnentafel(posicion)) {
+
+            if (Posicion.esSujeto(posicion)) {
+                return raiz;
+            }
+
+            String binario = Integer.toBinaryString(
+                Integer.parseInt(posicion)
+            );
+
+            Nodo actual = raiz;
+
+            // Se omite el primer bit, que siempre es 1.
+            for (int i = 1; i < binario.length(); i++) {
+
+                char bit = binario.charAt(i);
+
+                if (bit == '0') {
+                    actual = actual.padre;
+                } else {
+                    actual = actual.madre;
+                }
+
+                if (actual == null) {
+                    return null;
+                }
+            }
+
+            return actual;
+        }
+
+
+        // ----------------------------------------------------
+        // BÚSQUEDA D'ABOVILLE
+        // ----------------------------------------------------
+
+        String[] niveles = posicion.split("\\.");
+
+        Nodo actual = raiz;
+
+        for (int i = 1; i < niveles.length; i++) {
+
+            int numeroHijo = Integer.parseInt(niveles[i]);
+
+            actual = buscarHijo(actual, numeroHijo);
+
+            if (actual == null) {
+                return null;
+            }
+        }
+
+        return actual;
+    }
+
+
+    /**
+     * Busca un hijo por su número de orden.
      *
-     * @return la misma persona
-     * @throws IllegalArgumentException si la persona no es válida (Persona.validar)
-     * @throws ArbolInvalidoException si la posición ya existe (o es "1"), si falta la persona de la que depende,
-     *         o si los años de nacimiento no cumplen las reglas
+     * No supone que los números sean consecutivos.
+     */
+    private Nodo buscarHijo(Nodo progenitor, int orden) {
+
+        if (progenitor == null) {
+            return null;
+        }
+
+        for (Nodo hijo : progenitor.hijos) {
+
+            if (Posicion.orden(hijo.persona.getPosicion()) == orden) {
+                return hijo;
+            }
+        }
+
+        return null;
+    }
+
+
+    // ========================================================
+    // 7. COMPROBAR SI EXISTE UNA PERSONA
+    // ========================================================
+
+    /**
+     * @param posicion posición que se desea comprobar.
+     * @return true si existe una persona en esa posición.
+     */
+    public boolean contiene(String posicion) {
+        return buscarNodo(posicion) != null;
+    }
+
+
+    // ========================================================
+    // 8. AGREGAR UNA PERSONA
+    // ========================================================
+
+    /**
+     * Agrega una persona utilizando la posición que trae el objeto.
+     *
+     * @param persona persona que se desea agregar.
+     * @return la misma persona recibida.
      */
     public Persona agregar(Persona persona) {
-        // TODO Etapa 2
-        throw new UnsupportedOperationException("TODO: agregar");
+
+        if (persona == null) {
+            throw new IllegalArgumentException(
+                "La persona no puede ser null."
+            );
+        }
+
+        // Primero se validan los datos de la persona.
+        persona.validar();
+
+        String posicion = persona.getPosicion();
+
+        // El sujeto no puede volver a agregarse.
+        if (Posicion.esSujeto(posicion)) {
+            throw new ArbolInvalidoException(
+                "La posición 1 ya pertenece al sujeto."
+            );
+        }
+
+        // Comprobar que la posición no esté ocupada.
+        if (contiene(posicion)) {
+            throw new ArbolInvalidoException(
+                "Ya existe una persona en la posición " + posicion + "."
+            );
+        }
+
+
+        // ----------------------------------------------------
+        // AGREGAR UN ASCENDIENTE
+        // ----------------------------------------------------
+
+        if (Posicion.esAhnentafel(posicion)) {
+
+            int numero = Integer.parseInt(posicion);
+            String posicionHijo = String.valueOf(numero / 2);
+
+            Nodo hijo = buscarNodo(posicionHijo);
+
+            if (hijo == null) {
+                throw new ArbolInvalidoException(
+                    "No existe la persona de la que depende "
+                    + "el ascendiente " + posicion + "."
+                );
+            }
+
+            // El ascendiente debe nacer antes que su hijo.
+            if (persona.getNacimiento()
+                    >= hijo.persona.getNacimiento()) {
+
+                throw new ArbolInvalidoException(
+                    "El ascendiente debe haber nacido antes que su hijo."
+                );
+            }
+
+            Nodo nuevo = new Nodo(persona);
+
+            // Los números pares representan padres.
+            if (numero % 2 == 0) {
+
+                if (hijo.padre != null) {
+                    throw new ArbolInvalidoException(
+                        "El padre ya existe."
+                    );
+                }
+
+                hijo.padre = nuevo;
+
+            } else {
+
+                // Los números impares representan madres.
+                if (hijo.madre != null) {
+                    throw new ArbolInvalidoException(
+                        "La madre ya existe."
+                    );
+                }
+
+                hijo.madre = nuevo;
+            }
+
+            cantidad++;
+
+            return persona;
+        }
+
+
+        // ----------------------------------------------------
+        // AGREGAR UN DESCENDIENTE
+        // ----------------------------------------------------
+
+        if (Posicion.esDAboville(posicion)) {
+
+            String posicionProgenitor =
+                Posicion.posicionDelProgenitor(posicion);
+
+            Nodo progenitor = buscarNodo(posicionProgenitor);
+
+            if (progenitor == null) {
+                throw new ArbolInvalidoException(
+                    "No existe el progenitor de la posición "
+                    + posicion + "."
+                );
+            }
+
+            // El descendiente debe nacer después de su progenitor.
+            if (persona.getNacimiento()
+                    <= progenitor.persona.getNacimiento()) {
+
+                throw new ArbolInvalidoException(
+                    "El descendiente debe haber nacido después "
+                    + "de su progenitor."
+                );
+            }
+
+            Nodo nuevo = new Nodo(persona);
+
+            progenitor.hijos.add(nuevo);
+
+            cantidad++;
+
+            return persona;
+        }
+
+        throw new ArbolInvalidoException(
+            "La posición genealógica no es válida."
+        );
     }
 
+
+    // ========================================================
+    // 9. AGREGAR PADRE
+    // ========================================================
+
     /**
-     * Agrega el PADRE de la persona de esa posición, en la posición 2n (ver Posicion.posicionDelPadre).
-     * Solo se pueden agregar padres al sujeto y a sus ascendientes.
-     *
-     * @return la persona creada
-     * @throws ArbolInvalidoException si la posición no existe, si no es el sujeto ni un ascendiente, si ese padre
-     *         ya existe o si no cumple las reglas del árbol
-     * @throws IllegalArgumentException si los datos de la persona no son válidos
+     * Agrega el padre de una persona.
      */
-    public Persona agregarPadre(String posicion, String nombre, int nacimiento, Integer fallecimiento) {
-        // TODO Etapa 2
-        throw new UnsupportedOperationException("TODO: agregarPadre");
+    public Persona agregarPadre(
+            String posicion,
+            String nombre,
+            int nacimiento,
+            Integer fallecimiento) {
+
+        Nodo persona = buscarNodo(posicion);
+
+        if (persona == null) {
+            throw new ArbolInvalidoException(
+                "No existe la persona en la posición " + posicion + "."
+            );
+        }
+
+        if (!Posicion.esAhnentafel(posicion)) {
+            throw new ArbolInvalidoException(
+                "Solo se pueden agregar padres al sujeto "
+                + "y a sus ascendientes."
+            );
+        }
+
+        String nuevaPosicion = Posicion.posicionDelPadre(posicion);
+
+        Persona padre = new Persona(
+            nuevaPosicion,
+            nombre,
+            nacimiento,
+            fallecimiento
+        );
+
+        return agregar(padre);
     }
 
+
+    // ========================================================
+    // 10. AGREGAR MADRE
+    // ========================================================
+
     /**
-     * Igual que agregarPadre, pero agrega la MADRE (posición 2n + 1).
+     * Agrega la madre de una persona.
      */
-    public Persona agregarMadre(String posicion, String nombre, int nacimiento, Integer fallecimiento) {
-        // TODO Etapa 2
-        throw new UnsupportedOperationException("TODO: agregarMadre");
+    public Persona agregarMadre(
+            String posicion,
+            String nombre,
+            int nacimiento,
+            Integer fallecimiento) {
+
+        Nodo persona = buscarNodo(posicion);
+
+        if (persona == null) {
+            throw new ArbolInvalidoException(
+                "No existe la persona en la posición " + posicion + "."
+            );
+        }
+
+        if (!Posicion.esAhnentafel(posicion)) {
+            throw new ArbolInvalidoException(
+                "Solo se pueden agregar madres al sujeto "
+                + "y a sus ascendientes."
+            );
+        }
+
+        String nuevaPosicion = Posicion.posicionDeLaMadre(posicion);
+
+        Persona madre = new Persona(
+            nuevaPosicion,
+            nombre,
+            nacimiento,
+            fallecimiento
+        );
+
+        return agregar(madre);
     }
 
+
+    // ========================================================
+    // 11. AGREGAR HIJO
+    // ========================================================
+
     /**
-     * Agrega un HIJO a la persona de esa posición. Solo se pueden agregar hijos al sujeto y a sus descendientes.
-     * Su posición es la del progenitor + "." + el número siguiente al MAYOR número de hijo que ya exista
-     * (o 1 si todavía no tiene hijos). Ej.: si "1" tiene los hijos 1.1 y 1.3, el nuevo es 1.4.
-     *
-     * @return la persona creada
-     * @throws ArbolInvalidoException si la posición no existe, si no es el sujeto ni un descendiente, o si no cumple
-     *         las reglas del árbol
-     * @throws IllegalArgumentException si los datos de la persona no son válidos
+     * Agrega un hijo utilizando el siguiente número disponible
+     * después del mayor número de hijo existente.
      */
-    public Persona agregarHijo(String posicion, String nombre, int nacimiento, Integer fallecimiento) {
-        // TODO Etapa 2
-        throw new UnsupportedOperationException("TODO: agregarHijo");
+    public Persona agregarHijo(
+            String posicion,
+            String nombre,
+            int nacimiento,
+            Integer fallecimiento) {
+
+        Nodo progenitor = buscarNodo(posicion);
+
+        if (progenitor == null) {
+            throw new ArbolInvalidoException(
+                "No existe la persona en la posición " + posicion + "."
+            );
+        }
+
+        if (!Posicion.esSujeto(posicion)
+                && !Posicion.esDescendiente(posicion)) {
+
+            throw new ArbolInvalidoException(
+                "Solo se pueden agregar hijos al sujeto "
+                + "y a sus descendientes."
+            );
+        }
+
+        // Encontrar el mayor orden entre los hijos existentes.
+        int mayorOrden = 0;
+
+        for (Nodo hijo : progenitor.hijos) {
+
+            int ordenHijo = Posicion.orden(
+                hijo.persona.getPosicion()
+            );
+
+            if (ordenHijo > mayorOrden) {
+                mayorOrden = ordenHijo;
+            }
+        }
+
+        if (mayorOrden >= Posicion.MAX_ORDEN) {
+            throw new ArbolInvalidoException(
+                "Se alcanzó el máximo número de hijos permitido."
+            );
+        }
+
+        int siguienteOrden = mayorOrden + 1;
+
+        String nuevaPosicion = posicion + "." + siguienteOrden;
+
+        if (!Posicion.esDAboville(nuevaPosicion)) {
+            throw new ArbolInvalidoException(
+                "La nueva posición D'Aboville supera los límites permitidos."
+            );
+        }
+
+        Persona hijo = new Persona(
+            nuevaPosicion,
+            nombre,
+            nacimiento,
+            fallecimiento
+        );
+
+        return agregar(hijo);
     }
 
+
+    // ========================================================
+    // 12. ELIMINAR UNA PERSONA
+    // ========================================================
+
     /**
-     * Elimina a la persona de esa posición y TODO lo que depende de ella:
-     *   - si es un ascendiente: ella y todos sus propios ascendientes (sus padres, abuelos...);
-     *   - si es un descendiente: ella y todos sus propios descendientes (hijos, nietos...).
-     * Las demás posiciones NO cambian de número.
+     * Elimina una persona y todos los miembros que dependen de ella.
      *
-     * @return cuántas personas se eliminaron (ella incluida)
-     * @throws ArbolInvalidoException si la posición es "1" (el sujeto no se puede eliminar) o si no existe
+     * @param posicion posición de la persona que se eliminará.
+     * @return cantidad de personas eliminadas.
      */
     public int eliminar(String posicion) {
-        // TODO Etapa 2
-        throw new UnsupportedOperationException("TODO: eliminar");
+
+        if (Posicion.esSujeto(posicion)) {
+            throw new ArbolInvalidoException(
+                "El sujeto principal no se puede eliminar."
+            );
+        }
+
+        Nodo objetivo = buscarNodo(posicion);
+
+        if (objetivo == null) {
+            throw new ArbolInvalidoException(
+                "No existe una persona en la posición " + posicion + "."
+            );
+        }
+
+
+        // ----------------------------------------------------
+        // ELIMINAR ASCENDIENTES
+        // ----------------------------------------------------
+
+        if (Posicion.esAhnentafel(posicion)) {
+
+            int numero = Integer.parseInt(posicion);
+
+            String posicionHijo = String.valueOf(numero / 2);
+
+            Nodo hijo = buscarNodo(posicionHijo);
+
+            // Contar el nodo y todos sus ascendientes.
+            int eliminados = contarAscendientes(objetivo);
+
+            // Desconectar el nodo de su hijo.
+            if (numero % 2 == 0) {
+                hijo.padre = null;
+            } else {
+                hijo.madre = null;
+            }
+
+            cantidad -= eliminados;
+
+            return eliminados;
+        }
+
+
+        // ----------------------------------------------------
+        // ELIMINAR DESCENDIENTES
+        // ----------------------------------------------------
+
+        if (Posicion.esDAboville(posicion)) {
+
+            String posicionProgenitor =
+                Posicion.posicionDelProgenitor(posicion);
+
+            Nodo progenitor = buscarNodo(posicionProgenitor);
+
+            // Contar el nodo y todos sus descendientes.
+            int eliminados = contarDescendientes(objetivo);
+
+            // Desconectar el nodo de su progenitor.
+            progenitor.hijos.remove(objetivo);
+
+            cantidad -= eliminados;
+
+            return eliminados;
+        }
+
+        throw new ArbolInvalidoException(
+            "No se puede eliminar una posición no válida."
+        );
     }
+
 
     /**
-     * @return todos los miembros en este orden: el sujeto; luego los ascendientes por número Ahnentafel
-     *         ascendente (2, 3, 4, 5...); luego los descendientes en PREORDEN (cada persona y después sus hijos:
-     *         1.1, 1.1.1, 1.1.2, 1.2, ...). La lista es una copia nueva: modificarla no cambia el árbol.
-     *         Este orden garantiza que cada persona aparece DESPUÉS de la que necesita (útil para guardar y cargar).
+     * Cuenta un ascendiente y todos sus propios ascendientes.
+     */
+    private int contarAscendientes(Nodo nodo) {
+
+        if (nodo == null) {
+            return 0;
+        }
+
+        return 1
+                + contarAscendientes(nodo.padre)
+                + contarAscendientes(nodo.madre);
+    }
+
+
+    /**
+     * Cuenta un descendiente y todos sus descendientes.
+     */
+    private int contarDescendientes(Nodo nodo) {
+
+        if (nodo == null) {
+            return 0;
+        }
+
+        int total = 1;
+
+        for (Nodo hijo : nodo.hijos) {
+            total += contarDescendientes(hijo);
+        }
+
+        return total;
+    }
+
+
+    // ========================================================
+    // 13. OBTENER TODOS LOS MIEMBROS
+    // ========================================================
+
+    /**
+     * Devuelve los miembros en el siguiente orden:
+     *
+     * 1. Sujeto.
+     * 2. Ascendientes por número Ahnentafel ascendente.
+     * 3. Descendientes en preorden.
+     *
+     * La lista devuelta es una copia nueva.
      */
     public List<Persona> miembros() {
-        // TODO Etapa 2
-        throw new UnsupportedOperationException("TODO: miembros");
+
+        List<Persona> resultado = new ArrayList<>();
+
+        resultado.add(raiz.persona);
+
+        resultado.addAll(ascendientes());
+
+        resultado.addAll(descendientes());
+
+        return resultado;
     }
 
-    /** @return solo los ascendientes, por número Ahnentafel ascendente (sin el sujeto) */
+
+    // ========================================================
+    // 14. OBTENER ASCENDIENTES
+    // ========================================================
+
+    /**
+     * Devuelve todos los ascendientes ordenados por número.
+     */
     public List<Persona> ascendientes() {
-        // TODO Etapa 2
-        throw new UnsupportedOperationException("TODO: ascendientes");
+
+        List<Nodo> nodos = new ArrayList<>();
+
+        recolectarAscendientes(raiz.padre, nodos);
+        recolectarAscendientes(raiz.madre, nodos);
+
+        // Ordenar numéricamente las posiciones Ahnentafel.
+        nodos.sort(
+            Comparator.comparingInt(
+                nodo -> Integer.parseInt(nodo.persona.getPosicion())
+            )
+        );
+
+        List<Persona> resultado = new ArrayList<>();
+
+        for (Nodo nodo : nodos) {
+            resultado.add(nodo.persona);
+        }
+
+        return resultado;
     }
 
-    /** @return solo los descendientes, en preorden (sin el sujeto) */
+
+    /**
+     * Recorre recursivamente las ramas de ascendientes.
+     */
+    private void recolectarAscendientes(
+            Nodo nodo,
+            List<Nodo> resultado) {
+
+        if (nodo == null) {
+            return;
+        }
+
+        resultado.add(nodo);
+
+        recolectarAscendientes(nodo.padre, resultado);
+        recolectarAscendientes(nodo.madre, resultado);
+    }
+
+
+    // ========================================================
+    // 15. OBTENER DESCENDIENTES
+    // ========================================================
+
+    /**
+     * Devuelve todos los descendientes en preorden.
+     */
     public List<Persona> descendientes() {
-        // TODO Etapa 2
-        throw new UnsupportedOperationException("TODO: descendientes");
+
+        List<Persona> resultado = new ArrayList<>();
+
+        recolectarDescendientes(raiz, resultado);
+
+        return resultado;
+    }
+
+
+    /**
+     * Recorre los hijos en preorden:
+     * primero el hijo y después sus propios hijos.
+     */
+    private void recolectarDescendientes(
+            Nodo nodo,
+            List<Persona> resultado) {
+
+        if (nodo == null) {
+            return;
+        }
+
+        // Crear una copia para ordenar sin modificar el árbol.
+        List<Nodo> hijosOrdenados = new ArrayList<>(nodo.hijos);
+
+        hijosOrdenados.sort(
+            Comparator.comparingInt(
+                hijo -> Posicion.orden(hijo.persona.getPosicion())
+            )
+        );
+
+        for (Nodo hijo : hijosOrdenados) {
+
+            resultado.add(hijo.persona);
+
+            recolectarDescendientes(hijo, resultado);
+        }
     }
 }
